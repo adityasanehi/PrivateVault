@@ -3,6 +3,8 @@ name: Build Unsigned IPA
 on:
   workflow_dispatch:
   push:
+    branches:
+      - feature/local-encryption
     tags:
       - "v*"
 
