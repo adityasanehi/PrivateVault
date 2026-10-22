@@ -23,7 +23,7 @@ struct PersistenceModifier: ViewModifier {
 		.receive(on: DispatchQueue.main)
 	
 	init(usage: PersistenceManager.Usage) {
-		let usesCloud = usage == .main
+		let usesCloud = usage == .main && PersistenceManager.cloudSyncEnabled
 		self._manager = StateObject(wrappedValue: PersistenceManager(usage: usage))
 		self.usesCloud = usesCloud
 		self._iCloudEnabled = State(initialValue: usesCloud)

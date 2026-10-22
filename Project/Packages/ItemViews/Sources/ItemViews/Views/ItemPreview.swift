@@ -10,6 +10,8 @@ import SwiftUI
 
 public struct ItemPreview: View {
 	let item: StoredItem
+	//	Previews can't be decrypted while locked, this redraws them once the vault unlocks
+	@ObservedObject private var crypto = VaultCrypto.shared
 	
 	public init(item: StoredItem) {
 		self.item = item

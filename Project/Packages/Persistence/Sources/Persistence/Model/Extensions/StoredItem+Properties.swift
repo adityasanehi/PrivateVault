@@ -8,8 +8,9 @@
 import SwiftUI
 
 public extension StoredItem {
-	func generatePreview() -> Image? {
-		previewData.flatMap(UIImage.init).map(Image.init)
+	//	Throws `VaultCrypto.CryptoError.locked` while the vault is locked
+	func generatePreview() throws -> Image? {
+		try previewData.map(VaultCrypto.shared.decrypt).flatMap(UIImage.init).map(Image.init)
 	}
 	
 	var searchText: String {

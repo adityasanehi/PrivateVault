@@ -8,6 +8,7 @@
 import LocalAuthentication
 import LockScreen
 import Middleware
+import Persistence
 import SwiftUI
 import UIToolKit
 
@@ -19,6 +20,9 @@ public struct SettingsView: View {
 	let biometricsContext = LAContext()
 
 	@State var resetPasscode: Bool = false
+	@State private var newRecoveryPhrase: [String]?
+	@State private var recoverFiles = false
+	@State private var recoveryError: String?
 	let version = "1.0"
 	
 	public init() {}
@@ -67,6 +71,18 @@ public struct SettingsView: View {
 						}
 					}
 				}
+				Section(header: Text("Recovery"), footer: Text("The recovery phrase restores your encryption key if the app is installed again with a different certificate.")) {
+					Button {
+						newRecoveryPhrase = VaultCrypto.generateRecoveryPhrase()
+					} label: {
+						navigationRow("Create New Recovery Phrase")
+					}
+					Button {
+						recoverFiles = true
+					} label: {
+						navigationRow("Recover Files")
+					}
+				}
 				Section(header: Text("General")) {
 					Toggle(isOn: $settings.sound) {
 						Text("Sound")
@@ -93,11 +109,45 @@ public struct SettingsView: View {
 			.listStyle(InsetGroupedListStyle())
 			.navigationTitle("Settings")
 			.navigationDestination(isPresented: $resetPasscode) { resetView }
+			.navigationDestination(item: $newRecoveryPhrase) { words in
+				RecoveryPhraseView(words: words) {
+					do {
+						try VaultCrypto.shared.saveRecoveryBackup(phrase: words)
+					} catch {
+						recoveryError = "Unable to save the recovery backup."
+					}
+					newRecoveryPhrase = nil
+				}
+			}
+			.navigationDestination(isPresented: $recoverFiles) {
+				RecoverVaultView { phrase, completion in
+					VaultCrypto.shared.recover(phrase: phrase) { result in
+						completion((try? result.get()) != nil)
+						if case .success = result { recoverFiles = false }
+					}
+				}
+			}
+			.alert("Recovery Phrase", isPresented: Binding { recoveryError != nil } set: { if !$0 { recoveryError = nil } }) {
+				Button("OK") {}
+			} message: {
+				Text(recoveryError ?? "")
+			}
 			.toolbar {
 				ToolbarItem(placement: .cancellationAction) {
 					ModalDismissButton(dismiss)
 				}
 			}
+		}
+	}
+	
+	func navigationRow(_ title: String) -> some View {
+		HStack {
+			Text(title)
+				.foregroundColor(.primary)
+			Spacer()
+			Image(systemName: "chevron.right")
+				.font(.footnote.weight(.semibold))
+				.foregroundColor(Color(.tertiaryLabel))
 		}
 	}
 	

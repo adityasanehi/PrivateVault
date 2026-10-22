@@ -28,6 +28,7 @@ class ActionViewController: UIViewController {
 	private var persistence: PersistenceManager?
 	private var providers: [NSItemProvider] = []
 	private var errors: [ImportError] = []
+	private var unlockRequested = false
 	
 	private var bag: Set<AnyCancellable> = []
 	var folder: Folder?
@@ -65,7 +66,25 @@ class ActionViewController: UIViewController {
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
 		
-		guard !providers.isEmpty else { return }
+		//	The authentication prompt can trigger `viewDidAppear` again
+		guard !providers.isEmpty, !unlockRequested else { return }
+		unlockRequested = true
+		//	Without the app group the extension would import into a store the app can't see
+		guard URL.hasAppGroup else {
+			activityIndicator.stopAnimating()
+			importingLabel.text = "Importing isn't available in this build."
+			closeButton.isHidden = false
+			return
+		}
+		VaultCrypto.shared.unlock(reason: "Unlock to encrypt the imported files.") { [weak self] result in
+			switch result {
+			case .success: self?.startImport()
+			case .failure: self?.didFailToUnlock()
+			}
+		}
+	}
+	
+	private func startImport() {
 		let persistence = PersistenceManager(usage: .importExtension)
 		persistence.receiveItems(providers, folder: folder)
 		persistence.$creatingFiles
@@ -76,6 +95,12 @@ class ActionViewController: UIViewController {
 			.store(in: &bag)
 		
 		self.persistence = persistence
+	}
+	
+	private func didFailToUnlock() {
+		activityIndicator.stopAnimating()
+		importingLabel.text = "Unable to unlock the vault."
+		closeButton.isHidden = false
 	}
 	
 	private func didComplete() {
@@ -94,6 +119,7 @@ class ActionViewController: UIViewController {
 	}
 	
 	@IBAction func close() {
+		VaultCrypto.shared.lock()
 		extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
 	}
 	

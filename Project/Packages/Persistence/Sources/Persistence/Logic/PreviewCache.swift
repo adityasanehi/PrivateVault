@@ -25,12 +25,27 @@ public class PreviewCache {
 		guard let id = item.id as NSString? else { return nil }
 		guard !failedIds.contains(id) else { return nil }
 		if let value = cache.object(forKey: id) { return value.image }
-		guard let image = item.generatePreview() else {
+		let image: Image?
+		do {
+			image = try item.generatePreview()
+		} catch VaultCrypto.CryptoError.locked {
+			//	Not a failure, the preview is generated once the vault unlocks
+			return nil
+		} catch {
+			image = nil
+		}
+		guard let image = image else {
 			failedIds.insert(id)
 			return nil
 		}
 		cache.setObject(Wrapper(image: image), forKey: id)
 		return image
+	}
+	
+	//	Called when the vault locks so decrypted previews don't stay in memory
+	public func clear() {
+		cache.removeAllObjects()
+		failedIds.removeAll()
 	}
 	
 }

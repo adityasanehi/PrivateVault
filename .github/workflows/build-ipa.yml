@@ -1,0 +1,62 @@
+name: Build Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Archive without signing
+        working-directory: Project
+        run: |
+          xcodebuild archive \
+            -project PrivateVault.xcodeproj \
+            -scheme PrivateVault \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/PrivateVault.xcarchive" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP=$(find "$RUNNER_TEMP/PrivateVault.xcarchive/Products/Applications" -maxdepth 1 -name "*.app" | head -n 1)
+          # Re-signed builds lose the iCloud entitlement, this turns off CloudKit and keeps the encryption key on the device
+          for PLIST in "$APP/Info.plist" "$APP"/PlugIns/*.appex/Info.plist; do
+            [ -f "$PLIST" ] || continue
+            /usr/libexec/PlistBuddy -c "Add :PrivateVaultSideloadBuild bool true" "$PLIST"
+          done
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -qry PrivateVault-unsigned.ipa Payload
+          echo "IPA_PATH=$RUNNER_TEMP/ipa/PrivateVault-unsigned.ipa" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PrivateVault-unsigned-ipa
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.IPA_PATH }}

@@ -26,9 +26,17 @@ public class DiskStore: ObservableObject {
 		public var id: String? { stored.id }
 	}
 	
-	public init() {}
+	//	QuickLook and the share sheet need files, decrypted copies live here only while they're in use
+	public static let folder = FileManager.default.temporaryDirectory.appendingPathComponent("DiskStore")
 	
-	public func url(for item: StoredItem, in folder: URL = FileManager.default.temporaryDirectory) throws -> URL {
+	public init() {
+		//	Copies left behind if the app was terminated while previewing or sharing
+		queue.async {
+			try? FileManager.default.removeItem(at: Self.folder)
+		}
+	}
+	
+	public func url(for item: StoredItem, in folder: URL = DiskStore.folder) throws -> URL {
 		guard let id = item.id else { throw StoreError.missingId }
 		guard let fileExtension = item.fileExtension else { throw StoreError.missingExtension }
 		var url = folder.appendingPathComponent(id)
@@ -129,10 +137,11 @@ public class DiskStore: ObservableObject {
 					let fileUrl = try self.url(for: item)
 					try FileManager.default.createDirectory(at: fileUrl.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: nil)
 					try? FileManager.default.removeItem(at: fileUrl)
-					guard let data = item.data else {
+					guard let sealedData = item.data else {
 						throw StoreError.missingData
 					}
-					try data.write(to: fileUrl)
+					let data = try VaultCrypto.shared.decrypt(sealedData)
+					try data.write(to: fileUrl, options: .completeFileProtection)
 					if let diskItem = self.stored[id] {
 						diskItem.task = Just(fileUrl)
 							.setFailureType(to: Error.self)

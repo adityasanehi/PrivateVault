@@ -97,8 +97,13 @@ public extension PersistenceManager {
 				completion(.failure(.cantLoadPDF))
 			}
 		}
+		guard let sealed = seal(data, preview: previewData) else {
+			return DispatchQueue.main.async {
+				completion(.failure(.encryptionFailed))
+			}
+		}
 		DispatchQueue.main.async { [self] in
-			_ = StoredItem(context: context, data: data, previewData: previewData, type: .image, name: name, fileExtension: fileExtension, folder: folder)
+			_ = StoredItem(context: context, sealedData: sealed.data, sealedPreviewData: sealed.preview, type: .image, name: name, fileExtension: fileExtension, folder: folder)
 			self.registerImportedData(data)
 			save()
 			completion(.success(()))
@@ -115,8 +120,13 @@ public extension PersistenceManager {
 				completion(.failure(.cantLoadImage))
 			}
 		}
+		guard let sealed = seal(data, preview: previewData) else {
+			return DispatchQueue.main.async {
+				completion(.failure(.encryptionFailed))
+			}
+		}
 		DispatchQueue.main.async { [self] in
-			_ = StoredItem(context: context, data: data, previewData: previewData, type: .file, name: name, fileExtension: fileExtension, folder: folder)
+			_ = StoredItem(context: context, sealedData: sealed.data, sealedPreviewData: sealed.preview, type: .file, name: name, fileExtension: fileExtension, folder: folder)
 			self.registerImportedData(data)
 			save()
 			completion(.success(()))
@@ -180,9 +190,13 @@ public extension PersistenceManager {
 				let newURL = tempFolder
 					.appendingPathComponent(url.lastPathComponent)
 				try FileManager.default.createDirectory(at: tempFolder, withIntermediateDirectories: true, attributes: nil)
-				try data.write(to: newURL)
+				try data.write(to: newURL, options: .completeFileProtection)
 				
-				storeItem(at: newURL, folder: folder, type: type, completion: completion)
+				storeItem(at: newURL, folder: folder, type: type) {
+					//	Plaintext copy, removed as soon as the encrypted item exists
+					try? FileManager.default.removeItem(at: newURL)
+					completion($0)
+				}
 			} catch {
 				assertionFailure("Error \(error.localizedDescription)")
 				completion(.failure(.cantReadFile))
@@ -220,8 +234,11 @@ public extension PersistenceManager {
 		let cgImage = try? previewGenerator.copyCGImage(at: .zero, actualTime: nil)
 		let image = cgImage.map(UIImage.init)?.square(previewSize)
 		let previewData = image?.pngData()
+		guard let sealed = seal(data, preview: previewData) else {
+			return completion(.failure(.encryptionFailed))
+		}
 		DispatchQueue.main.async { [self] in
-			_ = StoredItem(context: context, data: data, previewData: previewData, type: .video, name: url.filename, fileExtension: url.pathExtension, folder: folder)
+			_ = StoredItem(context: context, sealedData: sealed.data, sealedPreviewData: sealed.preview, type: .video, name: url.filename, fileExtension: url.pathExtension, folder: folder)
 			self.registerImportedData(data)
 			completion(.success(()))
 		}
@@ -234,8 +251,11 @@ public extension PersistenceManager {
 		let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(side: previewSize), scale: 2, representationTypes: [.thumbnail])
 		QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [self] representation, _ in
 			let previewData = representation?.uiImage.pngData()
+			guard let sealed = seal(data, preview: previewData) else {
+				return completion(.failure(.encryptionFailed))
+			}
 			DispatchQueue.main.async {
-				_ = StoredItem(context: self.context, data: data, previewData: previewData, type: .file, name: url.filename, fileExtension: url.pathExtension, folder: folder)
+				_ = StoredItem(context: self.context, sealedData: sealed.data, sealedPreviewData: sealed.preview, type: .file, name: url.filename, fileExtension: url.pathExtension, folder: folder)
 				self.registerImportedData(data)
 				completion(.success(()))
 			}
@@ -249,9 +269,15 @@ public extension PersistenceManager {
 			let provider = LPMetadataProvider()
 			provider.startFetchingMetadata(for: url) { [self] metadata, error in
 				func createItem(name: String? = nil, preview: Data? = nil) {
+					let sealedPreview: Data?
+					do {
+						sealedPreview = try preview.map(VaultCrypto.shared.encrypt)
+					} catch {
+						return completion(.failure(.encryptionFailed))
+					}
 					DispatchQueue.main.async {
 						let folder = folderID.flatMap { self.context.object(with: $0) as? Folder }
-						_ = StoredItem(context: self.context, url: url, previewData: preview, name: name ?? url.absoluteString, folder: folder)
+						_ = StoredItem(context: self.context, url: url, sealedPreviewData: sealedPreview, name: name ?? url.absoluteString, folder: folder)
 						completion(.success(()))
 					}
 				}
@@ -267,6 +293,11 @@ public extension PersistenceManager {
 				}
 			}
 		}
+	}
+	
+	//	Contents and previews are encrypted before reaching Core Data, `nil` if the vault is locked
+	private func seal(_ data: Data, preview: Data?) -> (data: Data, preview: Data?)? {
+		try? (VaultCrypto.shared.encrypt(data), preview.map(VaultCrypto.shared.encrypt))
 	}
 	
 	private func registerImportedData(_ data: Data) {

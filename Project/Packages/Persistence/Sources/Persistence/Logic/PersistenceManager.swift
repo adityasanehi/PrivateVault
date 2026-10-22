@@ -20,6 +20,8 @@ public class PersistenceManager: ObservableObject {
 	public var importErrors: [ImportError] = []
 	//	Set when an imported file is larger than `largeFileSize`, cleared with `flushLargeFileWarning`
 	public var importedLargeFile = false
+	public private(set) var usage: Usage = .main
+	var encryptingLegacyItems = false
 	
 	public var bag: Set<AnyCancellable> = []
 	
@@ -31,6 +33,8 @@ public class PersistenceManager: ObservableObject {
 	}
 	
 	public static let cloudKitIdentifier = "iCloud.com.emiliopelaez.Private-Vault"
+	//	Sideloaded builds are re-signed without the iCloud entitlement, the IPA workflow adds this key to their Info.plist
+	public static let cloudSyncEnabled = Bundle.main.object(forInfoDictionaryKey: "PrivateVaultSideloadBuild") as? Bool != true
 	
 	//	Loaded once and shared, the model lives in this package's bundle
 	private static let model: NSManagedObjectModel = {
@@ -46,7 +50,7 @@ public class PersistenceManager: ObservableObject {
 	public convenience init(usage: Usage) {
 		switch usage {
 		case .main:
-			self.init(modelName: "Model", model: Self.model, cloudKitIdentifier: Self.cloudKitIdentifier, baseUrl: .container, inMemory: false)
+			self.init(modelName: "Model", model: Self.model, cloudKitIdentifier: Self.cloudSyncEnabled ? Self.cloudKitIdentifier : nil, baseUrl: .container, inMemory: false)
 		case .preview:
 			self.init(modelName: "Model", model: Self.model, inMemory: true)
 		case .importExtension:
@@ -55,6 +59,7 @@ public class PersistenceManager: ObservableObject {
 		case .screenshots:
 			self.init(modelName: "Model", model: Self.model, baseUrl: Bundle.main.bundleURL)
 		}
+		self.usage = usage
 		
 		combine()
 	}

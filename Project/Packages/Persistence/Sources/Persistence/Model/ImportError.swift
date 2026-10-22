@@ -15,6 +15,7 @@ public enum ImportError: Error {
 	case cantLoadPDF
 	case cantLoadURL
 	case cantReadFile
+	case encryptionFailed
 	
 	public var errorDescription: String {
 		switch self {
@@ -25,6 +26,7 @@ public enum ImportError: Error {
 		case .cantLoadPDF: return "Unable to load PDF."
 		case .cantLoadURL: return "Unable to load URL."
 		case .cantReadFile: return "Unable to read file."
+		case .encryptionFailed: return "Unable to encrypt file."
 		}
 	}
 }
